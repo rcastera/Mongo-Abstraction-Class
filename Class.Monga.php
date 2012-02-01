@@ -215,33 +215,4 @@ class Monga {
       throw new Exception('Database does not respond within the timeout period', 0, $e->getMessage());    
     }
   }
-
-  /**
-   * Drops this collection and deletes its indices.
-   */
-  public function dropCollection() {
-    try {
-      return $this->collection->drop();
-    }
-    catch (MongoCursorException $e) {
-      throw new Exception('Failed droping documents for collection ' . $this->collection->getName(), 0, $e->getMessage());
-    }
-  }
-
-  /**
-   * Creates new collection.
-   */
-  public function createCollection($name = '', $capped = FALSE, $size = 0, $max = 0) {
-    try {
-      return $this->database->createCollection(); 
-    }
-    catch (MongoCursorException $e) {
-      throw new Exception('Failed creating collection ' . $name, 0, $e->getMessage());
-    }
-  }
-
-
-
-
-
 }
