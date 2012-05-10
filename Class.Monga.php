@@ -1,14 +1,13 @@
 <?php
 /**
- * @uses        Abstraction class for Mongo - For the 10gen-supported PHP driver for MongoDB.
- * @author      Richard Castera
- * @link        http://www.richardcastera.com/projects/code/php-mongo-abstraction-class
- * @see         http://www.php.net/manual/en/book.mongo.php
- * @license     GNU LESSER GENERAL Public LICENSE
+ * @uses Abstraction class for Mongo - For the 10gen-supported PHP driver for MongoDB.
+ * @author Richard Castera
+ * @link http://www.richardcastera.com/projects/code/php-mongo-abstraction-class
+ * @see http://www.php.net/manual/en/book.mongo.php
+ * @license GNU LESSER GENERAL Public LICENSE
  */
 
 class Monga {
-
   /**
    * Holds the connection object.
    * @var String
@@ -27,10 +26,15 @@ class Monga {
    */
   private $collection;
 
+  /**
+   * The current cursor.
+   * @var Object
+   */
+  private $cursor;
 
   /**
-   * Constructor
-   * @param Array $server - 4 parameters for the connection string. Look at @example
+   * Constructor.
+   * @param Array $server - 4 parameters for the connection string. See @example
    * @param Array $options:
    *        connect - if the constructor should connect before returning. default is TRUE. 
    *        timeout - for how long the driver should try to connect to the database (in milliseconds).
@@ -38,37 +42,36 @@ class Monga {
    *        username - the username can be specified here, instead of including it in the host list. this is especially useful if a username has a ":" in it. this overrides a username set in the host list.
    *        password - the password can be specified here, instead of including it in the host list. this is especially useful if a password has a "@" in it. this overrides a password set in the host list.
    *        db - the database to authenticate against can be specified here, instead of including it in the host list. this overrides a database given in the host list.
-   * @param Boolean $slave - change slaveOkay setting for this connection.
    * @return None.
    * @example $Mongo - new Mongo(array('username'=>'username', 'password'=>'password', 'host'=>'localhost', 'port'=>'27017'));
    */
-  public function __construct($server = array(), $options = array(), $slave = FALSE) {
-    if(empty($server)) {
-      $host = 'mongodb://' . $server['host'];
+  public function __construct($server = array(), $options = array()) {
+    if (empty($server)) {
+      $host = $server['host'] = 'mongodb://localhost:27017';
+    }
+    else if (!empty($server['username']) && !empty($server['password'])) {
+      $host = "mongodb://${server['username']}:${server['password']}@${server['host']}:${server['port']}";
     }
     else {
-      $host = "mongodb://${server['username']}:${server['password']}@${server['host']}:${server['port']}";
+      $host = "mongodb://${server['host']}:${server['port']}";
     }
 
     try {
       $this->connection = new Mongo($host, $options);
-      $this->connection->setSlaveOkay($slave);
     }
     catch (MongoConnectionException $e) {
-      die('Error connecting to Mongo Server @' . $server['host']);
+      die('Error connecting to Mongo Server ' . $server['host']);
     } 
     catch (MongoException $e) {
-      throw new Exception('Error connecting to Mongo Server @' . $server['host'], 0, $e->getMessage());
+      throw new Exception('Error connecting to Mongo Server @' . $server['host'], $e->getCode(), $e->getMessage());
     }
   }
 
   /**
-   * Destructor
-   * @param None.
-   * @return None.
+   * Destructor.
    */
   public function __destruct() {
-    $this->connection->close();   
+    $this->connection->close();
   }
 
   /**
@@ -81,7 +84,7 @@ class Monga {
       $this->database = $this->connection->{$database};
     }
     catch (MongoException $e) {
-      throw new Exception('Could not select Database ' . $database, 0, $e->getMessage());  
+      throw new Exception('Could not select Database ' . $database, $e->getCode(), $e->getMessage());
     }
     return $this;
   }
@@ -94,9 +97,9 @@ class Monga {
   public function setCollection($collection = '') {
     try {
       $this->collection = $this->database->{$collection};
-    } 
+    }
     catch (MongoException $e) {
-      throw new Exception('Could not select Collection ' . $collection, 0, $e->getMessage());   
+      throw new Exception('Could not select Collection ' . $collection, $e->getCode(), $e->getMessage());
     }
     return $this;
   }
@@ -105,44 +108,100 @@ class Monga {
    * Find something within a collection.
    * @param Array $what - the fields for which to search.
    * @param Array $fields - fields of the results to return. The array is in the format array('fieldname' => true, 'fieldname2' => true). The _id field is always returned.
-   * @param Array $one - find only one.
+   * @param Boolean $one - find only one?
+   * @param Array $slave - sets whether this query can be done on a slave.
    * @return Array $data - an array of document objects.
    */
-  public function find($what = array(), $fields = array(), $one = FALSE) {
+  public function find($what = array(), $fields = array(), $one = FALSE, $slave = TRUE) {
     try {
-      $cursor = $one?$this->collection->findOne($what, $fields):$this->collection->find($what, $fields);  
+      $this->cursor = $one ? $this->collection->findOne($what, $fields) : $this->collection->find($what, $fields);
+      $this->cursor->slaveOkay($slave);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed finding ' . $what, 0, $e->getMessage());   
+      throw new Exception('Failed finding ' . print_r($what, TRUE), $e->getCode(), $e->getMessage());
     }
-    
-    $data = array();
-    while ($cursor->hasNext()) {
-      $data[] = $cursor->getNext();
-    }
-
-    return $data;
+    return $this;
   }
 
   /**
-   * Get all documents within a collection.
-   * @param None.
-   * @return Array $data - an array of all document objects related to collection.
+   * Sorts the results by given fields.
+   * @var Array $direction - an array of fields by which to sort.
+   * @return Object - this.
    */
-  public function all() {
-    try {
-      $cursor = $this->collection->find();
+  public function sort($direction = array()) {
+    if (!empty($direction)) {
+      try {
+        $this->cursor->sort($direction);
+      }
+      catch (MongoCursorException $e) {
+        throw new Exception('Failed sorting ' . print_r($direction, TRUE), $e->getCode(), $e->getMessage());
+      }
     }
-    catch (MongoCursorException $e) {
-      throw new Exception('Failed retrieving all documents', 0, $e->getMessage());
-    }
-    
-    $data = array();
-    foreach ($cursor as $document) {
-      $data[] = $document;
-    }
+    return $this;
+  }
 
-    return $data;
+  /**
+   * Limits the number of results returned.
+   * @var Integer $number - the number of records to limit the result.
+   * @return Object - this.
+   */
+  public function limit($number = 0) {
+    if (!empty($number)) {
+      try {
+        $this->cursor->limit($number);
+      }
+      catch (MongoCursorException $e) {
+        throw new Exception('Failed limiting results by ' . $number, $e->getCode(), $e->getMessage());
+      }
+    }
+    return $this;
+  }
+
+  /**
+   * Counts the number of results for this query.
+   * @var Boolean $found - send cursor limit and skip information to the count function, if applicable. 
+   */
+  public function count($found = FALSE) {
+    try {
+      return $this->cursor->count($found);
+    }
+    catch (MongoConnectionException $e) {
+      throw new Exception('Failed retrieving count', $e->getCode(), $e->getMessage());
+    }
+  }
+
+  /**
+   * Return the result as an array.
+   * @return Array of documents.
+   */
+  public function asArray() {
+    $data = array();
+    if ($this->cursor->hasNext()) {
+      while ($this->cursor->hasNext()) {
+        $data[] = $this->cursor->getNext();
+      }
+      return $data;
+    }
+    else {
+      return $data[] = $this->cursor;
+    }
+  }
+
+  /**
+   * Return the result as an object.
+   * @return Array of documents.
+   */
+  public function asObject() {
+    $data = array();
+    if ($this->cursor->hasNext()) {
+      while ($this->cursor->hasNext()) {
+        $data[] = (object) $this->cursor->getNext();
+      }
+      return $data;
+    }
+    else {
+      return $data[] = (object) $this->cursor;
+    }
   }
 
   /**
@@ -152,12 +211,12 @@ class Monga {
    * @param Int $skip - specifies a number of results to skip before starting the count.
    * @return Long - the number of documents in the current collection.
    */
-  public function count($query = array(), $limit = 0, $skip = 0) {
+  public function collectionCount($query = array(), $limit = 0, $skip = 0) {
     try {
-      return $this->collection->count($query, $limit, $skip); 
+      return $this->collection->count($query, $limit, $skip);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed counting documents for ' . print_r($query, TRUE), 0, $e->getMessage());
+      throw new Exception('Failed counting documents for ' . print_r($query, TRUE), $e->getCode(), $e->getMessage());
     }
   }
 
@@ -172,13 +231,13 @@ class Monga {
    */
   public function insertDocument($document = array(), $options = array()) {
     try {
-      return $this->collection->insert($document, $options);  
+      return $this->collection->insert($document, $options);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed inserting documents ' . print_r($document, TRUE), 0, $e->getMessage());   
+      throw new Exception('Failed inserting documents ' . print_r($document, TRUE), 0, $e->getMessage()); 
     }
     catch (MongoCursorTimeoutException $e) {
-      throw new Exception('Database does not respond within the timeout period', 0, $e->getMessage());    
+      throw new Exception('Database does not respond within the timeout period', $e->getCode(), $e->getMessage());
     }
   }
 
@@ -196,19 +255,19 @@ class Monga {
    */
   public function updateDocument($criteria = array(), $object = array(), $options = array()) {
     try {
-      return $this->collection->update($criteria, $object, $options);  
+      return $this->collection->update($criteria, $object, $options);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed updating object with criteria ' . print_r($criteria, TRUE), 0, $e->getMessage());   
+      throw new Exception('Failed updating object with criteria ' . print_r($criteria, TRUE), 0, $e->getMessage());
     }
     catch (MongoCursorTimeoutException $e) {
-      throw new Exception('Database does not respond within the timeout period', 0, $e->getMessage());    
+      throw new Exception('Database does not respond within the timeout period', $e->getCode(), $e->getMessage());
     }
   }
 
   /**
-   * Saves an object to this collection
-   * @param Array $object -
+   * If the object is from the database, update the existing database object, otherwise insert this object.
+   * @param Array $object - saves an object to the current collection.
    * @param Array $options:
    *        safe - can be a boolean or integer, defaults to FALSE. if FALSE, the program continues executing without waiting for a database response. if TRUE, the program will wait for the database response and throw a MongoCursorException if the insert did not succeed.
    *        fsync - boolean, defaults to FALSE. Forces the insert to be synced to disk before returning success. if TRUE, a safe insert is implied and will override setting safe to FALSE.
@@ -217,13 +276,13 @@ class Monga {
    */
   public function saveDocument($object = array(), $options = array()) {
     try {
-      return $this->collection->save($object, $options);  
+      return $this->collection->save($object, $options);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed saving object ' . print_r($object, TRUE), 0, $e->getMessage());   
+      throw new Exception('Failed saving object ' . print_r($object, TRUE), $e->getCode(), $e->getMessage());
     }
     catch (MongoCursorTimeoutException $e) {
-      throw new Exception('Database does not respond within the timeout period', 0, $e->getMessage());    
+      throw new Exception('Database does not respond within the timeout period', $e->getCode(), $e->getMessage());
     }
   }
 
@@ -239,13 +298,13 @@ class Monga {
    */
   public function deleteDocument($criteria = array(), $options = array()) {
     try {
-      return $this->collection->remove($criteria, $options);  
+      return $this->collection->remove($criteria, $options);
     }
     catch (MongoCursorException $e) {
-      throw new Exception('Failed deleting object with criteria ' . print_r($criteria, TRUE), 0, $e->getMessage());   
+      throw new Exception('Failed deleting object with criteria ' . print_r($criteria, TRUE), $e->getCode(), $e->getMessage());
     }
     catch (MongoCursorTimeoutException $e) {
-      throw new Exception('Database does not respond within the timeout period', 0, $e->getMessage());    
+      throw new Exception('Database does not respond within the timeout period', $e->getCode(), $e->getMessage());
     }
   }
 }
