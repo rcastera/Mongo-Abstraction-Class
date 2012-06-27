@@ -52,10 +52,13 @@ class Monga {
     else if (!empty($server['username']) && !empty($server['password'])) {
       $host = "mongodb://${server['username']}:${server['password']}@${server['host']}:${server['port']}";
     }
-    else {
+    else if (!empty($server['port'])) {
       $host = "mongodb://${server['host']}:${server['port']}";
     }
-
+    else {
+      $host = "mongodb://${server['host']}";
+    }
+    
     try {
       $this->connection = new Mongo($host, $options);
     }
